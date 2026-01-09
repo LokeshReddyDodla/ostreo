@@ -1,0 +1,14 @@
+{
+	"name": "create-anything",
+	"private": true,
+	"workspaces": [
+		"apps/*"
+	],
+	"scripts": {
+		"build": "npm run build --workspace=apps/web",
+		"build:web": "npm run build --workspace=apps/web",
+		"build:mobile": "npm run build --workspace=apps/mobile",
+		"dev:web": "npm run dev --workspace=apps/web",
+		"dev:mobile": "npm run dev --workspace=apps/mobile"
+	}
+}
