@@ -78,6 +78,22 @@ export default defineConfig({
     dedupe: ['react', 'react-dom'],
   },
   clearScreen: false,
+  build: {
+    target: 'esnext', // Support top-level await
+    ssr: true,
+    rollupOptions: {
+      output: {
+        format: 'es',
+      },
+    },
+  },
+  esbuild: {
+    target: 'esnext', // Support top-level await for SSR
+  },
+  ssr: {
+    target: 'node',
+    noExternal: true, // Bundle all dependencies for SSR
+  },
   server: {
     allowedHosts: true,
     host: '0.0.0.0',
