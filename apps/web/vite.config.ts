@@ -62,7 +62,9 @@ export default defineConfig({
     loadFontsFromTailwindSource(),
     addRenderIds(),
     reactRouter(),
-    tsconfigPaths(),
+    tsconfigPaths({
+      ignoreConfigErrors: true, // Ignore errors from mobile app's tsconfig
+    }),
     aliases(),
     layoutWrapperPlugin(),
   ],
@@ -92,7 +94,8 @@ export default defineConfig({
   },
   ssr: {
     target: 'node',
-    noExternal: true, // Bundle all dependencies for SSR
+    // Keep native modules external - they can't be bundled
+    noExternal: ['@neondatabase/serverless'],
   },
   server: {
     allowedHosts: true,
