@@ -1,6 +1,3 @@
-import { readdir, stat } from 'node:fs/promises';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { Hono } from 'hono';
 import type { Handler } from 'hono/types';
 import updatedFetch from '../src/__create/fetch';
@@ -8,52 +5,53 @@ import updatedFetch from '../src/__create/fetch';
 const API_BASENAME = '/api';
 const api = new Hono();
 
-// Get current directory
-const __dirname = join(fileURLToPath(new URL('.', import.meta.url)), '../src/app/api');
 if (globalThis.fetch) {
   globalThis.fetch = updatedFetch;
 }
 
-// Recursively find all route.js files
-async function findRouteFiles(dir: string): Promise<string[]> {
-  const files = await readdir(dir);
-  let routes: string[] = [];
+// Use Vite's glob import to statically import all route files
+const routeModules = import.meta.glob('../src/app/api/**/route.js', {
+  eager: !import.meta.env.DEV,
+});
 
-  for (const file of files) {
+// Get route files from glob imports
+async function getRouteFiles(): Promise<Array<{ path: string; module: any }>> {
+  const routes: Array<{ path: string; module: any }> = [];
+  
+  for (const [path, moduleOrLoader] of Object.entries(routeModules)) {
     try {
-      const filePath = join(dir, file);
-      const statResult = await stat(filePath);
-
-      if (statResult.isDirectory()) {
-        routes = routes.concat(await findRouteFiles(filePath));
-      } else if (file === 'route.js') {
-        // Handle root route.js specially
-        if (filePath === join(__dirname, 'route.js')) {
-          routes.unshift(filePath); // Add to beginning of array
-        } else {
-          routes.push(filePath);
-        }
-      }
+      const module = import.meta.env.DEV 
+        ? await (moduleOrLoader as () => Promise<any>)()
+        : moduleOrLoader;
+      routes.push({ path, module });
     } catch (error) {
-      console.error(`Error reading file ${file}:`, error);
+      console.error(`Error loading route ${path}:`, error);
     }
   }
-
-  return routes;
+  
+  // Sort by path length (longer paths first for more specific routes)
+  return routes.sort((a, b) => b.path.length - a.path.length);
 }
 
 // Helper function to transform file path to Hono route path
-function getHonoPath(routeFile: string): { name: string; pattern: string }[] {
-  const relativePath = routeFile.replace(__dirname, '');
-  const parts = relativePath.split('/').filter(Boolean);
-  const routeParts = parts.slice(0, -1); // Remove 'route.js'
-  if (routeParts.length === 0) {
+function getHonoPath(globPath: string): { name: string; pattern: string }[] {
+  // Extract path from glob pattern: ../src/app/api/auth/token/route.js -> auth/token
+  const match = globPath.match(/\/api\/(.+)\/route\.js$/);
+  if (!match || !match[1]) {
     return [{ name: 'root', pattern: '' }];
   }
-  const transformedParts = routeParts.map((segment) => {
-    const match = segment.match(/^\[(\.{3})?([^\]]+)\]$/);
-    if (match) {
-      const [_, dots, param] = match;
+  
+  const routePath = match[1];
+  const parts = routePath.split('/').filter(Boolean);
+  
+  if (parts.length === 0) {
+    return [{ name: 'root', pattern: '' }];
+  }
+  
+  const transformedParts = parts.map((segment) => {
+    const paramMatch = segment.match(/^\[(\.{3})?([^\]]+)\]$/);
+    if (paramMatch) {
+      const [_, dots, param] = paramMatch;
       return dots === '...'
         ? { name: param, pattern: `:${param}{.+}` }
         : { name: param, pattern: `:${param}` };
@@ -65,39 +63,25 @@ function getHonoPath(routeFile: string): { name: string; pattern: string }[] {
 
 // Import and register all routes
 async function registerRoutes() {
-  const routeFiles = (
-    await findRouteFiles(__dirname).catch((error) => {
-      console.error('Error finding route files:', error);
-      return [];
-    })
-  )
-    .slice()
-    .sort((a, b) => {
-      return b.length - a.length;
-    });
+  const routeFiles = await getRouteFiles().catch((error) => {
+    console.error('Error finding route files:', error);
+    return [];
+  });
 
   // Clear existing routes
   api.routes = [];
 
-  for (const routeFile of routeFiles) {
+  for (const { path, module } of routeFiles) {
     try {
-      const route = await import(/* @vite-ignore */ `${routeFile}?update=${Date.now()}`);
-
       const methods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'];
       for (const method of methods) {
         try {
-          if (route[method]) {
-            const parts = getHonoPath(routeFile);
+          if (module[method]) {
+            const parts = getHonoPath(path);
             const honoPath = `/${parts.map(({ pattern }) => pattern).join('/')}`;
             const handler: Handler = async (c) => {
               const params = c.req.param();
-              if (import.meta.env.DEV) {
-                const updatedRoute = await import(
-                  /* @vite-ignore */ `${routeFile}?update=${Date.now()}`
-                );
-                return await updatedRoute[method](c.req.raw, { params });
-              }
-              return await route[method](c.req.raw, { params });
+              return await module[method](c.req.raw, { params });
             };
             const methodLowercase = method.toLowerCase();
             switch (methodLowercase) {
@@ -122,30 +106,16 @@ async function registerRoutes() {
             }
           }
         } catch (error) {
-          console.error(`Error registering route ${routeFile} for method ${method}:`, error);
+          console.error(`Error registering route ${path} for method ${method}:`, error);
         }
       }
     } catch (error) {
-      console.error(`Error importing route file ${routeFile}:`, error);
+      console.error(`Error importing route file ${path}:`, error);
     }
   }
 }
 
 // Initial route registration
 await registerRoutes();
-
-// Hot reload routes in development
-if (import.meta.env.DEV) {
-  import.meta.glob('../src/app/api/**/route.js', {
-    eager: true,
-  });
-  if (import.meta.hot) {
-    import.meta.hot.accept((newSelf) => {
-      registerRoutes().catch((err) => {
-        console.error('Error reloading routes:', err);
-      });
-    });
-  }
-}
 
 export { api, API_BASENAME };
