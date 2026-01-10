@@ -398,7 +398,7 @@ Safety disclaimer must include:
         method: "POST",
         headers,
         body: JSON.stringify({
-          model: "gpt-4",
+          model: "gpt-4o", // Use gpt-4o which supports json_object response format
           messages: [
             {
               role: "system",
