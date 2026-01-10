@@ -10,8 +10,9 @@ if (globalThis.fetch) {
 }
 
 // Use Vite's glob import to statically import all route files
+// Use eager: true for production builds (static), false for dev (dynamic)
 const routeModules = import.meta.glob('../src/app/api/**/route.js', {
-  eager: !import.meta.env.DEV,
+  eager: import.meta.env.PROD,
 });
 
 // Get route files from glob imports
@@ -20,8 +21,10 @@ async function getRouteFiles(): Promise<Array<{ path: string; module: any }>> {
   
   for (const [path, moduleOrLoader] of Object.entries(routeModules)) {
     try {
-      const module = import.meta.env.DEV 
-        ? await (moduleOrLoader as () => Promise<any>)()
+      // In production (eager: true), moduleOrLoader is already the module
+      // In development (eager: false), moduleOrLoader is a function that loads the module
+      const module = typeof moduleOrLoader === 'function'
+        ? await moduleOrLoader()
         : moduleOrLoader;
       routes.push({ path, module });
     } catch (error) {
