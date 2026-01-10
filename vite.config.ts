@@ -37,7 +37,7 @@ export default defineConfig({
     restartEnvFileChange(),
     reactRouterHonoServer({
       serverEntryPoint: './__create/index.ts',
-      runtime: 'node',
+      runtime: 'node', // Keep Node.js runtime - we'll adapt for Cloudflare in the function
     }),
     babel({
       include: ['src/**/*.{js,jsx,ts,tsx}'], // or RegExp: /src\/.*\.[tj]sx?$/
